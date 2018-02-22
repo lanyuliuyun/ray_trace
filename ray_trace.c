@@ -293,7 +293,7 @@ void setup_sphere(sphere_t *sphere)
 /********************************************************************************/
 
 typedef struct pixel_color {uint8_t b; uint8_t g; uint8_t r; uint8_t a;} pixel_color_t;
-pixel_color_t color_black = {0, 0, 0, 0};
+pixel_color_t color_black = {0, 0, 0, 255};
 pixel_color_t color_white = {255, 255, 255, 255};
 
 static
@@ -509,6 +509,7 @@ int init_opencl_device(void)
             }
             else
             {
+                printf("init_opencl_device, no GPU device supporting RGBA 8bit color format\n");
                 clReleaseContext(device_ctx);
             }
         }
@@ -687,7 +688,7 @@ int render_gradient_opencl(uint8_t* pixel, int w, int h, int pitch)
     cl_ret = clEnqueueReadImage(command_queue, g_opencl_global.canvas_image, CL_TRUE, origin, region, pitch, 0, pixel, 1, &result_event, NULL);
     if (cl_ret != CL_SUCCESS)
     {
-        printf("render_gradient_opencl: clEnqueueReadImage() failed");
+        printf("render_gradient_opencl: clEnqueueReadImage() failed\n");
         clReleaseEvent(result_event);
         return -1;
     }
@@ -702,21 +703,17 @@ int render_gradient_opencl(uint8_t* pixel, int w, int h, int pitch)
 static
 int render_project_depth_opencl(uint8_t* pixel, int w, int h, int pitch)
 {
-    project_camera_t camera;
-    setup_project_camera(&camera);
-
-    sphere_t sphere;
-    setup_sphere(&sphere);
-
     cl_int cl_ret;
     cl_context device_context = g_opencl_global.opencl_device_context;
     cl_command_queue command_queue = g_opencl_global.command_queue;
     cl_kernel render_project_depth_kernel = g_opencl_global.render_project_depth_kernel;
 
-    cl_mem cl_project_camera = clCreateBuffer(device_context, CL_MEM_READ_ONLY, sizeof(camera), &camera, &cl_ret);
+    project_camera_t camera;
+    setup_project_camera(&camera);
+    cl_mem cl_project_camera = clCreateBuffer(device_context, CL_MEM_READ_ONLY, sizeof(camera), NULL, &cl_ret);
     if (cl_ret != CL_SUCCESS)
     {
-        printf("render_project_depth_opencl, clCreateBuffer() for project_camera failed, ret: %d", cl_ret);
+        printf("render_project_depth_opencl, clCreateBuffer() for project_camera failed, ret: %d\n", cl_ret);
         return -1;
     }
     cl_ret = clEnqueueWriteBuffer(command_queue, cl_project_camera, CL_TRUE, 0, sizeof(camera), &camera, 0, NULL, NULL);
@@ -727,10 +724,12 @@ int render_project_depth_opencl(uint8_t* pixel, int w, int h, int pitch)
         return -1;
     }
 
-    cl_mem cl_sphere = clCreateBuffer(device_context, CL_MEM_READ_ONLY, sizeof(sphere), &sphere, &cl_ret);
+    sphere_t sphere;
+    setup_sphere(&sphere);
+    cl_mem cl_sphere = clCreateBuffer(device_context, CL_MEM_READ_ONLY, sizeof(sphere), NULL, &cl_ret);
     if (cl_ret != CL_SUCCESS)
     {
-        printf("render_project_depth_opencl, clCreateBuffer() for sphere failed, ret: %d", cl_ret);
+        printf("render_project_depth_opencl, clCreateBuffer() for sphere failed, ret: %d\n", cl_ret);
         clReleaseMemObject(cl_project_camera);
         return -1;
     }
@@ -741,7 +740,7 @@ int render_project_depth_opencl(uint8_t* pixel, int w, int h, int pitch)
         clReleaseMemObject(cl_sphere);
         clReleaseMemObject(cl_project_camera);
         return -1;
-    }    
+    }
 
     uint64_t ts1 = now_ms();
     do
@@ -772,10 +771,11 @@ int render_project_depth_opencl(uint8_t* pixel, int w, int h, int pitch)
         return -1;
     }
 
+    cl_uint work_dim = 2;
     size_t global_work_size[2] = {w, h};
     size_t local_work_size[2] = {16, 16};
     cl_event result_event = NULL;
-    cl_ret = clEnqueueNDRangeKernel(command_queue, render_project_depth_kernel, 2, NULL, global_work_size, local_work_size, 0, NULL, &result_event);
+    cl_ret = clEnqueueNDRangeKernel(command_queue, render_project_depth_kernel, work_dim, NULL, global_work_size, local_work_size, 0, NULL, &result_event);
     if (cl_ret != CL_SUCCESS)
     {
         printf("render_project_depth_opencl: clEnqueueNDRangeKernel() failed, ret: %d\n", cl_ret);
@@ -789,7 +789,7 @@ int render_project_depth_opencl(uint8_t* pixel, int w, int h, int pitch)
     cl_ret = clEnqueueReadImage(command_queue, g_opencl_global.canvas_image, CL_TRUE, origin, region, pitch, 0, pixel, 1, &result_event, NULL);
     if (cl_ret != CL_SUCCESS)
     {
-        printf("render_project_depth_opencl: clEnqueueReadImage() failed, ret: %d", cl_ret);
+        printf("render_project_depth_opencl: clEnqueueReadImage() failed, ret: %d\n", cl_ret);
         clReleaseEvent(result_event);
         clReleaseMemObject(cl_sphere);
         clReleaseMemObject(cl_project_camera);
@@ -824,19 +824,20 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    SDL_Window *window;
-    SDL_Surface *surface;
-
     SDL_Init(SDL_INIT_VIDEO);
-    window = SDL_CreateWindow("Render Window", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, 0);
-    surface = SDL_GetWindowSurface(window);
+    SDL_Window *window = SDL_CreateWindow("Render Window", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, 0);
+    SDL_Surface *surface = SDL_GetWindowSurface(window);
 
     init_opencl_image(surface->w, surface->h);
 
+    int render_ok = 0;
     SDL_LockSurface(surface);
-    memset(surface->pixels, 0, (surface->pitch * surface->h));
+    render_ok = render_project_depth_opencl((uint8_t*)surface->pixels, surface->w, surface->h, surface->pitch) == 0;
     SDL_UnlockSurface(surface);
-    SDL_UpdateWindowSurface(window);
+    if (render_ok)
+    {
+        SDL_UpdateWindowSurface(window);
+    }
 
     while (1)
     {
@@ -845,7 +846,6 @@ int main(int argc, char *argv[])
         {
             if (event.type == SDL_KEYUP)
             {
-                int render_ok = 0;
                 SDL_Scancode key_scancode = event.key.keysym.scancode;
                 if (key_scancode == SDL_SCANCODE_1)
                 {
@@ -866,7 +866,6 @@ int main(int argc, char *argv[])
                 }
                 else if (key_scancode == SDL_SCANCODE_3)
                 {
-                    int render_ok = 0;
                     SDL_LockSurface(surface);
                     render_project_depth_soft((uint8_t*)surface->pixels, surface->w, surface->h, surface->pitch);
                     SDL_UnlockSurface(surface);
@@ -874,7 +873,6 @@ int main(int argc, char *argv[])
                 }
                 else if (key_scancode == SDL_SCANCODE_4)
                 {
-                    int render_ok = 0;
                     SDL_LockSurface(surface);
                     render_ok = render_project_depth_opencl((uint8_t*)surface->pixels, surface->w, surface->h, surface->pitch) == 0;
                     SDL_UnlockSurface(surface);

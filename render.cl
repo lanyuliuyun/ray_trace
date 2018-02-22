@@ -1,6 +1,4 @@
 
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-
 __kernel
 void render_gradient(__write_only image2d_t out_image)
 {
@@ -71,8 +69,20 @@ void project_camera_generateRay
     }
 
     /* 根据角度判断是否在视野范围内 */
-    /* BUG: 此处和预期不同，会全部认为不在视野范围内，和soft render版本不同！ */
-  #if 1
+    /* BUG: 此处和预期不同，会全部认为不在视野范围内，和soft render版本不同！
+     * 经进一步定位之后发现，project_camera定义拷贝到GPU内存之后，其成员值已经错动，如下
+     * camera->left_fov == 80.0， 预期为 80.0
+     * camera->right_fov == 80.0， 预期为 80.0
+     * camera->top_fov < 0， 预期为 80.0
+     * 0 < camera->bottom_fov < 80.0， 预期为 80.0
+     * camera->left_angle_tan > 0， 预期为 -tan((80.0 / 180) * M_PI)
+     * camera->right_angle_tan < 0， 预期为 tan((80.0 / 180) * M_PI)
+     * camera->bottom_angle_tan < 0， 预期为 -tan((80.0 / 180) * M_PI)
+     * camera->top_angle_tan < 0， 预期为 tan((80.0 / 180) * M_PI)
+     *
+     * 目前看数据拷贝到 GPU 内存来传递常量的方式存在一些未知的坑，尚不清楚具体为何！
+     */
+
     float h_tan = delta.x / (-delta.z);
     float v_tan = delta.y / (-delta.z);
     if (h_tan < camera->left_angle_tan || h_tan > camera->right_angle_tan || 
@@ -80,7 +90,6 @@ void project_camera_generateRay
     {
         return;
     }
-  #endif
 
     ray->origin = camera->eye;
     ray->direction = normalize(delta);
@@ -192,7 +201,7 @@ void render_project_depth
     ray_t ray;
     intersect_result_t intersect_result;
     project_camera_generateRay(&ray, project_camera, point);
-    if (ray.direction.x != 0 || ray.direction.y != 0 || ray.direction.z != 0)
+    if (ray.direction.x != 0.0 || ray.direction.y != 0.0 || ray.direction.z != 0.0)
     {
         sphere_intersect(&intersect_result, sphere, &ray);
         if (intersect_result.hit)
