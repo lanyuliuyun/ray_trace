@@ -2,7 +2,7 @@
 @echo off
 
 SET SDL_ROOT=D:\SDL2-2.0.5
-SET OPENCL_ROOT=C:\CUDAv8.0_SDK
+SET OPENCL_ROOT=c:\Intel_OpenCL2.0
 
 cl /nologo /utf-8 /Zi ^
     /I%SDL_ROOT%\include /DSDL_MAIN_HANDLED ^

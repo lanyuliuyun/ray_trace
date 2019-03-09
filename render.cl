@@ -81,6 +81,8 @@ void project_camera_generateRay
      * camera->top_angle_tan < 0， 预期为 tan((80.0 / 180) * M_PI)
      *
      * 目前看数据拷贝到 GPU 内存来传递常量的方式存在一些未知的坑，尚不清楚具体为何！
+     *
+     * result: this bug caused by type bytes alignment. See C6.1.5 in OpenCL Spec
      */
 
     float h_tan = delta.x / (-delta.z);
@@ -111,6 +113,7 @@ typedef struct sphere
     float3 center;
     float radius;
     float sqr_radius;
+    float pad[2];
 } sphere_t;
 
 typedef struct intersect_result
@@ -225,21 +228,24 @@ void render_project_depth
         else
         {
             /* 未相交时，保持原来的背景色 */
-
+          #if 0
             /* 调试，写入红色 */
             pixel.x = 0;
             pixel.y = 0;
             pixel.z = 255;
+          #endif
         }
     }
     else
     {
         /* 影像平面上的点，不在摄像机视角范围内, 保持原来的背景色 */
 
+      #if 0
         /* 调试，写入蓝色 */
         pixel.x = 255;
         pixel.y = 0;
         pixel.z = 0;
+      #endif
     }
     
     write_imageui(out_image, cord, pixel);

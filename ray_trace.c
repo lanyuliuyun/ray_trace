@@ -128,7 +128,11 @@ typedef struct project_camera
 {
     /* 基础字面属性 */
     point_t eye;
+    float pad_for_eye;
+    
     direction_t front;
+    float pad_for_front;
+    
     /* 视角单位为度 */
     float left_fov;
     float right_fov;
@@ -221,8 +225,11 @@ const intersect_result_t intersect_nohit = {NULL, 0, {0.0, 0.0, 0.0}, {0.0, 0.0,
 typedef struct sphere
 {
     point_t center;
+    float pad_for_center;
+
     float radius;
     float sqr_radius;
+    float pad[2];
 }sphere_t;
 
 static
@@ -354,11 +361,11 @@ void render_project_depth_soft(uint8_t* pixel, int w, int h, int pitch)
             int y_block_count = j / 40;
             if ((x_block_count - y_block_count) & 0x01)
             {
-                *pixel_color = color_black;
+                *pixel_color = color_white;
             }
             else
             {
-                *pixel_color = color_white;
+                *pixel_color = color_black;
             }
 
             /* 此处将窗口平面的坐标映射到影像平面 */
@@ -448,7 +455,7 @@ int init_opencl_device(void)
 
         cl_uint device_count;
         cl_ret = clGetDeviceIDs(plat_id, CL_DEVICE_TYPE_GPU, 0, NULL, &device_count);
-        if (cl_ret != CL_SUCCESS)
+        if (cl_ret != CL_SUCCESS || device_count == 0)
         {
             continue;
         }
@@ -467,7 +474,7 @@ int init_opencl_device(void)
             }
             cl_uint image_format_count = 0;
             cl_ret = clGetSupportedImageFormats(device_ctx, CL_MEM_READ_WRITE, CL_MEM_OBJECT_IMAGE2D, 0, NULL, &image_format_count);
-            if (cl_ret != CL_SUCCESS)
+            if (cl_ret != CL_SUCCESS || image_format_count == 0)
             {
                 clReleaseContext(device_ctx);
                 continue;
